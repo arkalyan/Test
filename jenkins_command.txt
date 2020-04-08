@@ -1,0 +1,71 @@
+import groovy.transform.Field
+
+@Field Map<String, String> pcf2foundation = [ 'dev':'Preprod', 'uat':'Preprod', 'stg':'Preprod', 'lnp':'Prod', 'prod':'Prod' ]
+@Field Map<String, String> foundation2edc1api = [ 'Preprod':'https://api.sys.pp01.edc1.cf.ford.com', 'Prod':'https://api.sys.pd01.edc1.cf.ford.com']
+@Field Map<String, String> foundation2edc2api = [ 'Preprod':'https://api.sys.pp01.edc2.cf.ford.com', 'Prod':'https://api.sys.pd01.edc2.cf.ford.com']
+@Field Map<String, String> pcf2orgs = [ 'dev':'OBM', 'uat':'OBM', 'stg':'OBM', 'lnp':'OBM', 'prod':'OBM' ]
+
+@Field List<String> allPcfs
+@Field List<String> pcfs
+@Field Map<String, String> foundation2api = foundation2edc1api
+
+
+def gitCheckout(branch) {
+    checkout scm: [$class: 'GitSCM',
+                   userRemoteConfigs: [[url: "git@github.ford.com:order-to-delivery/gotd-om-uk.git", credentialsId: 'Jenkins']],
+                   branches: [[name: branch]]
+    ], poll: false
+}
+
+node('windows') {
+    allPcfs = pcf2foundation.keySet()
+    pcfs = allPcfs.findAll { params["GOTD_PCF_$it"] }
+    
+    gitCheckout(params['GOTD_GIT_REF'])
+
+    String gradle = ".\\gradlew -i -s "
+    
+    shortCommit = bat(returnStdout: true, script: "@git rev-parse --short HEAD")
+    currentBuild.displayName = "#${currentBuild.id}: ${params['GOTD_GIT_REF']}"
+    currentBuild.description = 'Environments built:'
+
+    if(FOUNDATION_EDC_NAME == 'EDC2')
+    {
+        foundation2api = foundation2edc2api
+    }
+    stage('Clean') {
+        bat "$gradle clean"
+        if (!pcfs.isEmpty()){
+             println "pcfs not empty, running Liberty"
+             bat "$gradle installLiberty"
+             println "After Liberty"
+             //TODO system cannot find the file specified, don't know if we need this  sh 'chmod +x ConversionServer/build/wlp/bin/server'
+        }
+        for (String pcf : pcfs) {
+            println "Before libertyPackage pcf value is " + pcf
+            bat "$gradle -Penv=${pcf} installLiberty libertyPackage"
+            //TODO Do we need this or does the libPack do it for us? archiveArtifacts artifacts: "ConversionServer/build/gotd-sicon-wlp-${pcf}.zip"
+        }
+        
+    }
+
+    stage("Preparatory Build") {
+    printf "Start of Preparatory Build"
+        for (String pcf : pcfs) {
+            stage(pcf.toUpperCase()) {
+                if (pcfs.contains(pcf)) {
+                    String foundation = pcf2foundation.get(pcf)
+                    String pcf2org = pcf2orgs.get(pcf)
+                    //For user property, we use have gois-ci-preprod-edc1 and gois-ci-prod-edc1.
+                    withCredentials([usernamePassword(credentialsId: "gois-ci-${foundation.toLowerCase()}-edc1", usernameVariable: 'userFromJenkins', passwordVariable: 'passFromJenkins')]) {                       
+                        bat ("cf login -a ${foundation2api.get(foundation)}"
+                                    + " -o GOTD_${pcf2org}_${FOUNDATION_EDC_NAME}_${foundation} -s GOTD_${pcf2org}-${pcf.toUpperCase()} -u ${userFromJenkins} -p ${passFromJenkins}")
+                        def manifestDir = "OBM/GotdObmServer/servers/gotdobm-wlp/manifest"
+                        bat "cf push -p OBM/build/gotd-obm-wlp-${pcf}.zip -f ${manifestDir}/${pcf}/manifest.yml"
+                    }
+                    currentBuild.description += " $env"
+                }
+            }
+        }
+    }
+}
