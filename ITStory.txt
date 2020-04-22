@@ -1,0 +1,14 @@
+[IT Story] This story is to analyze the approach for a problem/scenario/situation.
+[IT Story] The output of this story gives only a partial functionality that cannot be demonstrated to business.
+[IT Story] This story is to work on a technical activity like Autosys setup/DB Table Updates/Configuration Changes
+[IT Story] This story is to do testing (or regression testing) of existing functionality which is already existing in the application or demonstrated to business.
+
+IntrfcWsQA-GSIMS
+K*4$!b&u7e
+
+
+1. Create feature branc
+2.
+3. After merge process is completed, run gradle build and test     cases for any issues.
+4. Pull request from feature barnch to develop
+
